@@ -35,7 +35,7 @@ And [custom tracing sections require API v18+](https://developer.android.com/ref
 which are wonderfully useful to see not just "this is doing disk access here", but
 _why_ it's happening in the first place.
 
-Also but.  `systrace.py` is tightly bound to running systrace itself, which means your
+Also but.  `systrace.py` is pretty tightly bound to `atrace` itself, which means your
 device has to be plugged in, and it'll end itself after not too long anyway.  Yeah, you
 can feed it a file, but you still need to actually call `adb shell atrace -z`.
 
