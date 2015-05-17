@@ -1,5 +1,7 @@
 # LocalTrace
 #### A complete* replacement for all* your [android.os.Trace](https://developer.android.com/reference/android/os/Trace.html) needs.
+or
+#### How I Learned To Stop Reading Logs, And Love Visualizations
 
 *: for my purposes
 
