@@ -28,15 +28,15 @@ public class LocalTrace {
        INSTANCE = new LocalTrace(context);
     }
 
-    private static final double NANOS_PER_TIMESTAMP = 1000d * 1000d * 1000d;
-
     private static LocalTrace INSTANCE = null;
+
+    private static final double NANOS_PER_TIMESTAMP = 1000d * 1000d * 1000d;
 
     private final BufferedWriter output;
     private final Runnable flushable;
     private final Handler flusher;
     private final HandlerThread flushThread;
-    private final List<CharSequence> logs = new ArrayList<CharSequence>();
+    private final List<TraceData> traces = new ArrayList<TraceData>();
     private final int cores;
     private final NumberFormat timestampFormatter;
     private final NumberFormat coreFormatter;
@@ -63,63 +63,52 @@ public class LocalTrace {
         flushThread.start();
         flusher = new Handler(flushThread.getLooper());
         flushable = new Flush();
-        logs.add(preamble);
         postFlush();
     }
 
-    private void begin(String name) {
-        StringBuilder sb = buildLine(name, true);
-        synchronized (logs) {
-            logs.add(sb);
+    public void begin(String name) {
+        TraceData trace = buildLine(name, true);
+        synchronized (traces) {
+            traces.add(trace);
         }
     }
 
-    private void end() {
-        StringBuilder sb = buildLine(null, false);
-        synchronized (logs) {
-            logs.add(sb);
+    public void end() {
+        TraceData trace = buildLine(null, false);
+        synchronized (traces) {
+            traces.add(trace);
         }
     }
 
-    private StringBuilder buildLine(String name, boolean isBeginning) {
-        StringBuilder sb = new StringBuilder();
+    private TraceData buildLine(String name, boolean isBeginning) {
         Thread current = Thread.currentThread();
-        long now = System.nanoTime();
-        sb.append(current.getName());
-        sb.append("-");
-        sb.append(current.getId());
-        sb.append(" ");
-        sb.append("(1337)"); // a fake process ID
-        sb.append(" ");
-        // a fake CPU core ID, since there's no API.  it seems to be ignored anyway.
-        sb.append("[").append(coreFormatter.format(current.getId() % cores)).append("]");
-        sb.append(" ...1 "); // "preempt-depth" is always on, most others are not (ever).  fake it.
-        sb.append(timestampFormatter.format(now / NANOS_PER_TIMESTAMP));
-        sb.append(": tracing_mark_write: ");
-        if (isBeginning) {
-            // beginning shows process ID again
-            sb.append("B|1337|").append(name);
-        } else {
-            sb.append("E");
-        }
-        sb.append("\\n\\\n");
-        return sb;
+        return new TraceData(isBeginning, current.getName(), current.getId(), System.nanoTime(), name);
     }
 
     private void flush() {
-        List<CharSequence> copy;
-        synchronized (logs) {
-            if (logs.isEmpty()) {
+        List<TraceData> copy;
+        synchronized (traces) {
+            if (traces.isEmpty()) {
                 postFlush();
                 return;
             }
-            copy = new ArrayList<CharSequence>(logs);
-            logs.clear();
+            copy = new ArrayList<TraceData>(traces);
+            traces.clear();
         }
 
-        for (CharSequence s : copy) {
+        if (!hasPreambled) {
             try {
-                output.append(s);
+                output.append(preamble);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+            hasPreambled = true;
+        }
+
+        for (TraceData d : copy) {
+            try {
+                d.buildLine(builder);
+                output.append(builder); // this .toString()s :| meh.
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
@@ -145,6 +134,47 @@ public class LocalTrace {
         }
     }
 
+    private static final StringBuilder builder = new StringBuilder();
+    private class TraceData {
+        final boolean isBeginning;
+        final String threadName;
+        final long threadId;
+        final long time;
+        final String section;
+
+        public TraceData(boolean isBeginning, String threadName, long threadId, long time, String section) {
+            this.isBeginning = isBeginning;
+            this.threadName = threadName;
+            this.threadId = threadId;
+            this.time = time;
+            this.section = section;
+        }
+
+        void buildLine(StringBuilder builder) {
+            builder.setLength(0); // reset
+            builder.append(threadName);
+            builder.append("-");
+            builder.append(threadId);
+            builder.append(" ");
+            builder.append("(1337)"); // a fake process ID
+            builder.append(" ");
+            builder.append("[");
+            builder.append(coreFormatter.format(threadId % cores)).append("]"); // a fake CPU core ID, since there's no API.  it seems to be ignored anyway.
+            builder.append(" ...1 "); // "preempt-depth" is always on, most others are not (ever).  fake it.
+            builder.append(timestampFormatter.format(time / NANOS_PER_TIMESTAMP));
+            builder.append(": tracing_mark_write: ");
+            if (isBeginning) {
+                // beginning shows process ID again
+                builder.append("B|1337|").append(section);
+            } else {
+                builder.append("E");
+            }
+            builder.append("\\n\\\n");
+        }
+    }
+
+    private static boolean hasPreambled = false;
+    // I love how this auto-escapes when I paste.
     private static final String preamble =
             "# tracer: nop\\n\\\n" +
             "#\\n\\\n" +
