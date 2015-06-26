@@ -3,6 +3,7 @@ package com.example
 import android.content.Context;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.Process;
 
 import java.io.BufferedWriter;
 import java.io.File;
@@ -11,9 +12,12 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.TimeZone;
 
 public class LocalTrace {
     public static void beginSection(String name) {
@@ -31,6 +35,7 @@ public class LocalTrace {
     private static LocalTrace INSTANCE = null;
 
     private static final double NANOS_PER_TIMESTAMP = 1000d * 1000d * 1000d;
+    private static final int FLUSH_MS = 1000;
 
     private final BufferedWriter output;
     private final Runnable flushable;
@@ -51,7 +56,9 @@ public class LocalTrace {
         coreFormatter.setMaximumFractionDigits(0);
         coreFormatter.setMinimumIntegerDigits(3);
 
-        String filename = context.getFilesDir().getAbsolutePath() + "/trace-" + System.currentTimeMillis() + ".trace";
+        SimpleDateFormat date = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US);
+        date.setTimeZone(TimeZone.getTimeZone("UTC"));
+        String filename = context.getFilesDir().getAbsolutePath() + "/trace-" + date.format(new Date()) + ".trace";
         try {
             output = new BufferedWriter(new FileWriter(new File(filename)));
         } catch (FileNotFoundException e) {
@@ -59,7 +66,7 @@ public class LocalTrace {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
-        flushThread = new HandlerThread("Flusher", HandlerThread.NORM_PRIORITY);
+        flushThread = new HandlerThread("Flusher", Process.THREAD_PRIORITY_BACKGROUND + Process.THREAD_PRIORITY_LESS_FAVORABLE);
         flushThread.start();
         flusher = new Handler(flushThread.getLooper());
         flushable = new Flush();
@@ -124,7 +131,7 @@ public class LocalTrace {
     }
 
     private void postFlush() {
-        flusher.postDelayed(flushable, 1000);
+        flusher.postDelayed(flushable, FLUSH_MS);
     }
 
     private class Flush implements Runnable {
